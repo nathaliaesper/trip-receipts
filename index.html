@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CMI - Trip Receipts</title>
+<meta name="theme-color" content="#17479E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#16223C;
+    --paper:#F4F6FA;
+    --card:#FFFFFF;
+    --accent:#17479E;
+    --accent-soft:#E5EDF9;
+    --muted:#66718A;
+    --line:#D5DBE7;
+    --danger:#A33B2E;
+    --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--sans);background:var(--paper);color:var(--ink);
+    min-height:100vh;padding-bottom:110px;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:0 14px}
+
+  header{
+    background:var(--accent);color:#fff;
+    padding:calc(env(safe-area-inset-top,0px) + 16px) 0 14px;
+    margin-bottom:16px;
+  }
+  header .wrap{display:flex;align-items:baseline;justify-content:space-between}
+  header h1{font-size:1.15rem;font-weight:700;letter-spacing:.02em}
+  header .total{font-family:var(--mono);font-size:1.05rem}
+  header .total small{font-size:.7rem;opacity:.8;font-family:var(--sans);margin-right:6px}
+
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px;margin-bottom:16px;
+  }
+  .card h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px}
+
+  label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:10px 0 4px}
+  input,select{
+    width:100%;padding:11px 12px;font-size:1rem;border:1px solid var(--line);
+    border-radius:8px;background:#fff;color:var(--ink);font-family:inherit;
+  }
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  input[type=number]{font-family:var(--mono)}
+  .row{display:flex;gap:10px}
+  .row>div{flex:1}
+  .rate-row{display:flex;gap:6px}
+  .rate-row input{flex:1;min-width:0}
+  .rate-btn{
+    flex:0 0 44px;border:1px solid var(--accent);border-radius:8px;
+    background:var(--accent-soft);color:var(--accent);font-size:1.1rem;cursor:pointer;
+  }
+  .rate-btn:active{background:var(--accent);color:#fff}
+
+  .photo-btn{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;padding:14px;margin-top:12px;
+    border:1.5px dashed var(--accent);border-radius:10px;
+    background:var(--accent-soft);color:var(--accent);
+    font-size:.95rem;font-weight:600;cursor:pointer;
+  }
+  .photo-btn img{width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+
+  .actions{display:flex;gap:10px;margin-top:16px}
+  button.primary{
+    flex:1;padding:14px;font-size:1rem;font-weight:700;border:none;border-radius:10px;
+    background:var(--accent);color:#fff;cursor:pointer;
+  }
+  button.ghost{
+    padding:14px 16px;font-size:.95rem;border:1px solid var(--line);border-radius:10px;
+    background:#fff;color:var(--muted);cursor:pointer;
+  }
+
+  /* receipt-tape list */
+  .tape{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:16px}
+  .tape-head{padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px dashed var(--line)}
+  .tape-head h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .tape-head span{font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+  .entry{
+    display:flex;gap:12px;align-items:center;padding:12px 16px;
+    border-bottom:1px dashed var(--line);
+  }
+  .entry:last-child{border-bottom:none}
+  .entry .thumb{
+    width:46px;height:46px;border-radius:6px;object-fit:cover;flex-shrink:0;
+    border:1px solid var(--line);background:var(--accent-soft);
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.65rem;
+  }
+  .entry .info{flex:1;min-width:0}
+  .entry .info .type{font-weight:600;font-size:.95rem}
+  .entry .info .date{font-size:.75rem;color:var(--muted);font-family:var(--mono);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .entry .amounts{text-align:right;font-family:var(--mono)}
+  .entry .amounts .usd{font-weight:700;font-size:.95rem}
+  .entry .amounts .local{font-size:.75rem;color:var(--muted)}
+  .entry .del{
+    background:none;border:none;color:var(--danger);font-size:1.1rem;
+    padding:8px 4px 8px 8px;cursor:pointer;flex-shrink:0;
+  }
+  .empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:.9rem}
+
+  /* export bar */
+  .export-bar{
+    position:fixed;bottom:0;left:0;right:0;
+    background:var(--card);border-top:1px solid var(--line);
+    padding:12px 14px calc(env(safe-area-inset-bottom,0px) + 12px);
+  }
+  .export-bar .wrap{display:flex;gap:10px;padding:0}
+  .export-bar button{
+    flex:1;padding:13px;font-size:.9rem;font-weight:700;border-radius:10px;cursor:pointer;
+    border:1.5px solid var(--accent);background:#fff;color:var(--accent);
+  }
+  .export-bar button:disabled{opacity:.4;cursor:default}
+
+  .toast{
+    position:fixed;bottom:96px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#fff;padding:10px 18px;border-radius:20px;
+    font-size:.85rem;opacity:0;transition:opacity .25s;pointer-events:none;z-index:10;
+  }
+  .toast.show{opacity:1}
+  @media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>CMI - Trip Receipts</h1>
+    <div class="total"><small>TOTAL</small>$<span id="totalUsd">0.00</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section class="card" aria-label="Add expense">
+    <h2 id="formTitle">New expense</h2>
+
+    <div class="row">
+      <div>
+        <label for="fDate">Date</label>
+        <input type="date" id="fDate">
+      </div>
+      <div>
+        <label for="fType">Expense type</label>
+        <select id="fType">
+          <option>Meals</option>
+          <option>Transport</option>
+          <option>Lodging</option>
+          <option>Flights</option>
+          <option>Conference / fees</option>
+          <option>Supplies</option>
+          <option>Other</option>
+        </select>
+      </div>
+    </div>
+
+    <label for="fDesc">Expense</label>
+    <input type="text" id="fDesc" placeholder="e.g. Taxi from airport to hotel" maxlength="120">
+
+    <div class="row">
+      <div style="flex:0 0 34%">
+        <label for="fCur">Currency</label>
+        <select id="fCur">
+          <option>EUR</option><option>BRL</option><option>USD</option><option>GBP</option>
+          <option>CAD</option><option>JPY</option><option>CHF</option><option>MXN</option>
+        </select>
+      </div>
+      <div>
+        <label for="fLocal">Amount (local)</label>
+        <input type="number" id="fLocal" inputmode="decimal" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="fRate">Rate (1 local = ? USD)</label>
+        <div class="rate-row">
+          <input type="number" id="fRate" inputmode="decimal" step="0.0001" placeholder="e.g. 1.08">
+          <button type="button" id="rateBtn" class="rate-btn" aria-label="Fetch today's rate" title="Fetch today's rate">&#8635;</button>
+        </div>
+      </div>
+      <div>
+        <label for="fUsd">Amount (USD)</label>
+        <input type="number" id="fUsd" inputmode="decimal" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+
+    <button type="button" class="photo-btn" id="photoBtn">
+      <span id="photoLabel">&#128247; Snap receipt photo</span>
+    </button>
+    <input type="file" id="fPhoto" accept="image/*" capture="environment" hidden>
+
+    <div class="actions">
+      <button type="button" class="primary" id="saveBtn">Save expense</button>
+      <button type="button" class="ghost" id="cancelBtn" hidden>Cancel</button>
+    </div>
+  </section>
+
+  <section class="tape" aria-label="Expense list">
+    <div class="tape-head">
+      <h2>Logged</h2>
+      <span id="countLabel">0 entries</span>
+    </div>
+    <div id="list"><div class="empty">Nothing logged yet. Snap your first receipt above.</div></div>
+  </section>
+
+</div>
+
+<div class="export-bar">
+  <div class="wrap">
+    <button id="xlsxBtn" disabled>&#11015; Spreadsheet (.xlsx)</button>
+    <button id="pdfBtn" disabled>&#11015; Receipts PDF</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* ---------- IndexedDB ---------- */
+const DB_NAME = "trip-receipts", DB_VER = 1;
+let db;
+function openDB(){
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open(DB_NAME, DB_VER);
+    rq.onupgradeneeded = () => {
+      const d = rq.result;
+      if (!d.objectStoreNames.contains("expenses"))
+        d.createObjectStore("expenses", { keyPath: "id", autoIncrement: true });
+      if (!d.objectStoreNames.contains("settings"))
+        d.createObjectStore("settings", { keyPath: "key" });
+    };
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+function tx(store, mode, fn){
+  return new Promise((res, rej) => {
+    const t = db.transaction(store, mode);
+    const s = t.objectStore(store);
+    const out = fn(s);
+    t.oncomplete = () => res(out && out.result !== undefined ? out.result : undefined);
+    t.onerror = () => rej(t.error);
+  });
+}
+const getAll = () => new Promise((res, rej) => {
+  const rq = db.transaction("expenses").objectStore("expenses").getAll();
+  rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+});
+const getSetting = key => new Promise(res => {
+  const rq = db.transaction("settings").objectStore("settings").get(key);
+  rq.onsuccess = () => res(rq.result ? rq.result.value : null); rq.onerror = () => res(null);
+});
+const putSetting = (key, value) => tx("settings", "readwrite", s => s.put({ key, value }));
+
+/* ---------- state ---------- */
+let editingId = null;
+let pendingPhoto = null;   // Blob (compressed) for the entry being edited/created
+let photoCleared = false;
+
+const $ = id => document.getElementById(id);
+const fDate=$("fDate"), fType=$("fType"), fDesc=$("fDesc"), fCur=$("fCur"),
+      fLocal=$("fLocal"), fRate=$("fRate"), fUsd=$("fUsd"), fPhoto=$("fPhoto");
+
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+const fmt = n => (Math.round(n * 100) / 100).toFixed(2);
+
+/* ---------- photo capture + compression ---------- */
+$("photoBtn").addEventListener("click", () => fPhoto.click());
+fPhoto.addEventListener("change", async () => {
+  const file = fPhoto.files[0];
+  if (!file) return;
+  try {
+    pendingPhoto = await compressImage(file, 1500, 0.82);
+    photoCleared = false;
+    showPhotoPreview(pendingPhoto);
+    toast("Photo attached");
+  } catch (e) { toast("Could not read photo"); }
+  fPhoto.value = "";
+});
+function compressImage(file, maxDim, quality){
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      let { width: w, height: h } = img;
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? res(b) : rej(new Error("blob failed")), "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("img load failed")); };
+    img.src = url;
+  });
+}
+function showPhotoPreview(blob){
+  const label = $("photoLabel");
+  label.innerHTML = "";
+  if (blob) {
+    const im = document.createElement("img");
+    im.src = URL.createObjectURL(blob);
+    im.alt = "Receipt preview";
+    label.appendChild(im);
+    label.appendChild(document.createTextNode(" Retake photo"));
+  } else {
+    label.innerHTML = "&#128247; Snap receipt photo";
+  }
+}
+
+/* ---------- rate helpers ---------- */
+async function loadRateFor(cur){
+  const rates = (await getSetting("rates")) || {};
+  if (rates[cur] != null) fRate.value = rates[cur];
+  else if (cur === "USD") fRate.value = 1;
+  recompute();
+}
+async function fetchRate(cur, quiet){
+  if (cur === "USD") { fRate.value = 1; recompute(); return true; }
+  const today = new Date().toISOString().slice(0, 10);
+  const d = fDate.value && fDate.value < today ? fDate.value : "latest";
+  try {
+    const r = await fetch(`https://api.frankfurter.dev/v1/${d}?base=${cur}&symbols=USD`);
+    if (!r.ok) throw new Error();
+    const j = await r.json();
+    const rate = j.rates && j.rates.USD;
+    if (!rate) throw new Error();
+    fRate.value = rate;
+    recompute();
+    if (d === "latest") { // only persist today's rate as the fallback
+      const rates = (await getSetting("rates")) || {};
+      rates[cur] = rate;
+      await putSetting("rates", rates);
+    }
+    if (!quiet) toast(`Rate on ${j.date}: 1 ${cur} = ${rate} USD`);
+    return true;
+  } catch (e) {
+    if (!quiet) toast(fRate.value ? "Offline — using last saved rate" : "Offline — enter rate manually");
+    return false;
+  }
+}
+$("rateBtn").addEventListener("click", () => fetchRate(fCur.value, false));
+fCur.addEventListener("change", async () => {
+  await loadRateFor(fCur.value);   // saved rate first, as fallback
+  fetchRate(fCur.value, true);     // then try to refresh silently
+});
+function recompute(){
+  const local = parseFloat(fLocal.value), rate = parseFloat(fRate.value);
+  if (!isNaN(local) && !isNaN(rate)) fUsd.value = fmt(local * rate);
+}
+fLocal.addEventListener("input", recompute);
+fRate.addEventListener("input", recompute);
+
+/* ---------- save / edit / delete ---------- */
+$("saveBtn").addEventListener("click", async () => {
+  const local = parseFloat(fLocal.value), usd = parseFloat(fUsd.value);
+  if (!fDate.value) return toast("Pick a date");
+  if (isNaN(local)) return toast("Enter the local amount");
+
+  const rate = parseFloat(fRate.value);
+  if (!isNaN(rate)) {
+    const rates = (await getSetting("rates")) || {};
+    rates[fCur.value] = rate;
+    await putSetting("rates", rates);
+  }
+
+  const entry = {
+    date: fDate.value, type: fType.value, desc: fDesc.value.trim(), currency: fCur.value,
+    local: Math.round(local * 100) / 100,
+    usd: isNaN(usd) ? null : Math.round(usd * 100) / 100,
+  };
+
+  if (editingId != null) {
+    const old = await new Promise(r => {
+      const rq = db.transaction("expenses").objectStore("expenses").get(editingId);
+      rq.onsuccess = () => r(rq.result);
+    });
+    entry.id = editingId;
+    entry.photo = photoCleared ? null : (pendingPhoto || (old && old.photo) || null);
+    await tx("expenses", "readwrite", s => s.put(entry));
+    toast("Expense updated");
+  } else {
+    entry.photo = pendingPhoto || null;
+    await tx("expenses", "readwrite", s => s.add(entry));
+    toast("Expense saved");
+  }
+  resetForm();
+  render();
+});
+
+$("cancelBtn").addEventListener("click", resetForm);
+
+function resetForm(){
+  editingId = null; pendingPhoto = null; photoCleared = false;
+  fLocal.value = ""; fUsd.value = ""; fDesc.value = "";
+  fDate.value = new Date().toISOString().slice(0, 10);
+  showPhotoPreview(null);
+  $("formTitle").textContent = "New expense";
+  $("saveBtn").textContent = "Save expense";
+  $("cancelBtn").hidden = true;
+}
+
+async function startEdit(e){
+  editingId = e.id; pendingPhoto = null; photoCleared = false;
+  fDate.value = e.date; fType.value = e.type; fDesc.value = e.desc || ""; fCur.value = e.currency;
+  fLocal.value = e.local; fUsd.value = e.usd == null ? "" : e.usd;
+  await loadRateFor(e.currency);
+  fUsd.value = e.usd == null ? "" : e.usd; // keep stored value over recompute
+  showPhotoPreview(e.photo || null);
+  $("formTitle").textContent = "Edit expense";
+  $("saveBtn").textContent = "Update expense";
+  $("cancelBtn").hidden = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function remove(id){
+  if (!confirm("Delete this expense?")) return;
+  await tx("expenses", "readwrite", s => s.delete(id));
+  if (editingId === id) resetForm();
+  render();
+}
+
+/* ---------- render ---------- */
+async function render(){
+  const items = (await getAll()).sort((a, b) =>
+    a.date === b.date ? b.id - a.id : (a.date < b.date ? 1 : -1));
+  const list = $("list");
+  list.innerHTML = "";
+  let total = 0, pending = 0;
+
+  if (!items.length) {
+    list.innerHTML = '<div class="empty">Nothing logged yet. Snap your first receipt above.</div>';
+  }
+  for (const e of items) {
+    if (e.usd == null) pending++; else total += e.usd;
+    const row = document.createElement("div");
+    row.className = "entry";
+
+    let thumb;
+    if (e.photo) {
+      thumb = document.createElement("img");
+      thumb.className = "thumb";
+      thumb.src = URL.createObjectURL(e.photo);
+      thumb.alt = "Receipt";
+    } else {
+      thumb = document.createElement("div");
+      thumb.className = "thumb";
+      thumb.textContent = "no pic";
+    }
+
+    const info = document.createElement("div");
+    info.className = "info";
+    info.innerHTML = `<div class="type"></div><div class="date"></div>`;
+    info.querySelector(".type").textContent = e.type;
+    info.querySelector(".date").textContent = e.desc ? `${e.date} · ${e.desc}` : e.date;
+
+    const amounts = document.createElement("div");
+    amounts.className = "amounts";
+    amounts.innerHTML = `<div class="usd"></div><div class="local"></div>`;
+    amounts.querySelector(".usd").textContent = e.usd == null ? "$ —" : "$" + fmt(e.usd);
+    amounts.querySelector(".local").textContent = fmt(e.local) + " " + e.currency;
+
+    const del = document.createElement("button");
+    del.className = "del"; del.innerHTML = "&#10005;";
+    del.setAttribute("aria-label", "Delete expense");
+    del.addEventListener("click", ev => { ev.stopPropagation(); remove(e.id); });
+
+    row.append(thumb, info, amounts, del);
+    row.addEventListener("click", () => startEdit(e));
+    list.appendChild(row);
+  }
+  $("totalUsd").textContent = fmt(total);
+  $("countLabel").textContent = items.length + (items.length === 1 ? " entry" : " entries")
+    + (pending ? ` · ${pending} pending USD` : "");
+  $("xlsxBtn").disabled = !items.length;
+  $("pdfBtn").disabled = !items.some(e => e.photo);
+}
+
+/* ---------- exports ---------- */
+const stamp = () => new Date().toISOString().slice(0, 10);
+
+$("xlsxBtn").addEventListener("click", async () => {
+  const items = (await getAll()).sort((a, b) => a.date < b.date ? -1 : 1);
+  const rows = [["Date", "Expense Type", "Expense", "Amount (Local Currency)", "Currency", "Amount (USD)"]];
+  let total = 0;
+  for (const e of items) {
+    rows.push([e.date, e.type, e.desc || "", e.local, e.currency, e.usd == null ? "" : e.usd]);
+    if (e.usd != null) total += e.usd;
+  }
+  rows.push([]);
+  rows.push(["", "", "TOTAL", "", "", Math.round(total * 100) / 100]);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [{ wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 20 }, { wch: 9 }, { wch: 13 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Expenses");
+  XLSX.writeFile(wb, `expenses_${stamp()}.xlsx`);
+  toast("Spreadsheet exported");
+});
+
+$("pdfBtn").addEventListener("click", async () => {
+  toast("Building PDF…");
+  const items = (await getAll()).filter(e => e.photo)
+    .sort((a, b) => a.date < b.date ? -1 : 1);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const PW = 210, PH = 297, M = 15;
+
+  for (let i = 0; i < items.length; i++) {
+    const e = items[i];
+    if (i > 0) doc.addPage();
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text(`Date: ${e.date}`, M, M);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    const words = doc.splitTextToSize(`Expense: ${e.desc || e.type}`, PW - 2 * M);
+    doc.text(words, M, M + 6);
+    const yAmt = M + 6 + words.length * 5;
+    doc.text(`Amount (USD): ${e.usd == null ? "—" : "$" + fmt(e.usd)}`, M, yAmt);
+
+    const dataUrl = await blobToDataURL(e.photo);
+    const dims = await imageDims(dataUrl);
+    const yImg = yAmt + 6;
+    const maxW = PW - 2 * M, maxH = PH - M - yImg;
+    const s = Math.min(maxW / dims.w, maxH / dims.h);
+    doc.addImage(dataUrl, "JPEG", M, yImg, dims.w * s, dims.h * s);
+  }
+  doc.save(`receipts_${stamp()}.pdf`);
+  toast("PDF exported");
+});
+const blobToDataURL = blob => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result); r.onerror = rej;
+  r.readAsDataURL(blob);
+});
+const imageDims = src => new Promise((res, rej) => {
+  const im = new Image();
+  im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+  im.onerror = rej; im.src = src;
+});
+
+/* ---------- init ---------- */
+(async function init(){
+  db = await openDB();
+  fDate.value = new Date().toISOString().slice(0, 10);
+  await loadRateFor(fCur.value);
+  fetchRate(fCur.value, true);
+  render();
+  if ("serviceWorker" in navigator) {
+    try { navigator.serviceWorker.register("sw.js"); } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>
