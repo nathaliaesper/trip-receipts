@@ -50,13 +50,16 @@
 
   label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:10px 0 4px}
   input,select{
-    width:100%;padding:11px 12px;font-size:1rem;border:1px solid var(--line);
+    width:100%;min-width:0;padding:11px 12px;font-size:1rem;border:1px solid var(--line);
     border-radius:8px;background:#fff;color:var(--ink);font-family:inherit;
   }
   input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   input[type=number]{font-family:var(--mono)}
   .row{display:flex;gap:10px}
-  .row>div{flex:1}
+  .row>div{flex:1;min-width:0}
+  .row-date{flex:0 0 44% !important}
+  select{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+  input[type=date]{min-width:0;-webkit-appearance:none;appearance:none;min-height:44px}
   .rate-row{display:flex;gap:6px}
   .rate-row input{flex:1;min-width:0}
   .rate-btn{
@@ -149,7 +152,7 @@
     <h2 id="formTitle">New expense</h2>
 
     <div class="row">
-      <div>
+      <div class="row-date">
         <label for="fDate">Date</label>
         <input type="date" id="fDate">
       </div>
