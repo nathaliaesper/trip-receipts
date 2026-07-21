@@ -54,7 +54,8 @@
     border-radius:8px;background:#fff;color:var(--ink);font-family:inherit;
   }
   input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-  input[type=number]{font-family:var(--mono)}
+  .amt{font-family:var(--mono)}
+  .ver{text-align:center;font-size:.7rem;color:var(--muted);font-family:var(--mono);margin:4px 0 8px}
   .row{display:flex;gap:10px}
   .row>div{flex:1;min-width:0}
   .row-date{flex:0 0 44% !important}
@@ -187,7 +188,7 @@
       </div>
       <div>
         <label for="fLocal">Amount (local)</label>
-        <input type="number" id="fLocal" inputmode="decimal" step="0.01" placeholder="0.00">
+        <input type="text" class="amt" id="fLocal" inputmode="decimal" placeholder="0,00">
       </div>
     </div>
 
@@ -195,13 +196,13 @@
       <div>
         <label for="fRate">Rate (1 local = ? USD)</label>
         <div class="rate-row">
-          <input type="number" id="fRate" inputmode="decimal" step="0.0001" placeholder="e.g. 1.08">
+          <input type="text" class="amt" id="fRate" inputmode="decimal" placeholder="e.g. 1,08">
           <button type="button" id="rateBtn" class="rate-btn" aria-label="Fetch today's rate" title="Fetch today's rate">&#8635;</button>
         </div>
       </div>
       <div>
         <label for="fUsd">Amount (USD)</label>
-        <input type="number" id="fUsd" inputmode="decimal" step="0.01" placeholder="0.00">
+        <input type="text" class="amt" id="fUsd" inputmode="decimal" placeholder="0,00">
       </div>
     </div>
 
@@ -225,6 +226,8 @@
     </div>
     <div id="list"><div class="empty">Nothing logged yet. Snap your first receipt above.</div></div>
   </section>
+
+  <p class="ver">v8</p>
 
 </div>
 
@@ -289,6 +292,17 @@ function toast(msg){
   clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove("show"), 2200);
 }
 const fmt = n => (Math.round(n * 100) / 100).toFixed(2);
+// Accepts "45.50", "45,50", and "1.234,56" (pt-BR thousands + comma decimal)
+function parseAmount(v){
+  v = String(v == null ? "" : v).trim();
+  if (!v) return NaN;
+  if (v.includes(",")) v = v.replace(/\./g, "").replace(",", ".");
+  return parseFloat(v);
+}
+// Surface silent phone-side errors as toasts (no console on mobile)
+window.addEventListener("error", ev => toast("Error: " + (ev.message || "script error")));
+window.addEventListener("unhandledrejection", ev =>
+  toast("Error: " + (ev.reason && ev.reason.message ? ev.reason.message : "async error")));
 
 /* ---------- photo capture + compression ---------- */
 $("photoBtn").addEventListener("click", () => fPhoto.click());
@@ -383,7 +397,7 @@ fCur.addEventListener("change", async () => {
   fetchRate(fCur.value, true);     // then try to refresh silently
 });
 function recompute(){
-  const local = parseFloat(fLocal.value), rate = parseFloat(fRate.value);
+  const local = parseAmount(fLocal.value), rate = parseAmount(fRate.value);
   if (!isNaN(local) && !isNaN(rate)) fUsd.value = fmt(local * rate);
 }
 fLocal.addEventListener("input", recompute);
@@ -391,11 +405,11 @@ fRate.addEventListener("input", recompute);
 
 /* ---------- save / edit / delete ---------- */
 $("saveBtn").addEventListener("click", async () => {
-  const local = parseFloat(fLocal.value), usd = parseFloat(fUsd.value);
+  const local = parseAmount(fLocal.value), usd = parseAmount(fUsd.value);
   if (!fDate.value) return toast("Pick a date");
   if (isNaN(local)) return toast("Enter the local amount");
 
-  const rate = parseFloat(fRate.value);
+  const rate = parseAmount(fRate.value);
   if (!isNaN(rate)) {
     const rates = (await getSetting("rates")) || {};
     rates[fCur.value] = rate;
