@@ -1,4 +1,4 @@
-const CACHE = "trip-receipts-v5";
+const CACHE = "trip-receipts-v7";
 const ASSETS = [
   ".",
   "index.html",
@@ -6,7 +6,7 @@ const ASSETS = [
   "icon-192.png",
   "icon-512.png",
   "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
 ];
 
 self.addEventListener("install", e => {

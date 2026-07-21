@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root{
     --ink:#16223C;
@@ -76,6 +76,10 @@
     font-size:.95rem;font-weight:600;cursor:pointer;
   }
   .photo-btn img{width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+  .attach-link{
+    display:block;width:100%;margin-top:8px;padding:8px;background:none;border:none;
+    color:var(--accent);font-size:.85rem;cursor:pointer;text-align:center;
+  }
 
   .actions{display:flex;gap:10px;margin-top:16px}
   button.primary{
@@ -205,6 +209,8 @@
       <span id="photoLabel">&#128247; Snap receipt photo</span>
     </button>
     <input type="file" id="fPhoto" accept="image/*" capture="environment" hidden>
+    <button type="button" class="attach-link" id="fileBtn">&#128206; …or attach an image / PDF file</button>
+    <input type="file" id="fFile" accept="image/*,application/pdf" hidden>
 
     <div class="actions">
       <button type="button" class="primary" id="saveBtn">Save expense</button>
@@ -276,7 +282,7 @@ let photoCleared = false;
 
 const $ = id => document.getElementById(id);
 const fDate=$("fDate"), fType=$("fType"), fDesc=$("fDesc"), fCur=$("fCur"),
-      fLocal=$("fLocal"), fRate=$("fRate"), fUsd=$("fUsd"), fPhoto=$("fPhoto");
+      fLocal=$("fLocal"), fRate=$("fRate"), fUsd=$("fUsd"), fPhoto=$("fPhoto"), fFile=$("fFile");
 
 function toast(msg){
   const t = $("toast"); t.textContent = msg; t.classList.add("show");
@@ -286,17 +292,26 @@ const fmt = n => (Math.round(n * 100) / 100).toFixed(2);
 
 /* ---------- photo capture + compression ---------- */
 $("photoBtn").addEventListener("click", () => fPhoto.click());
-fPhoto.addEventListener("change", async () => {
-  const file = fPhoto.files[0];
+$("fileBtn").addEventListener("click", () => fFile.click());
+fPhoto.addEventListener("change", () => handleAttachment(fPhoto));
+fFile.addEventListener("change", () => handleAttachment(fFile));
+async function handleAttachment(input){
+  const file = input.files[0];
   if (!file) return;
   try {
-    pendingPhoto = await compressImage(file, 1500, 0.82);
+    if (file.type === "application/pdf") {
+      if (file.size > 15 * 1024 * 1024) { toast("PDF too large (max 15 MB)"); input.value = ""; return; }
+      pendingPhoto = file;
+      toast("PDF attached");
+    } else {
+      pendingPhoto = await compressImage(file, 1500, 0.82);
+      toast("Photo attached");
+    }
     photoCleared = false;
     showPhotoPreview(pendingPhoto);
-    toast("Photo attached");
-  } catch (e) { toast("Could not read photo"); }
-  fPhoto.value = "";
-});
+  } catch (e) { toast("Could not read file"); }
+  input.value = "";
+}
 function compressImage(file, maxDim, quality){
   return new Promise((res, rej) => {
     const url = URL.createObjectURL(file);
@@ -318,7 +333,9 @@ function compressImage(file, maxDim, quality){
 function showPhotoPreview(blob){
   const label = $("photoLabel");
   label.innerHTML = "";
-  if (blob) {
+  if (blob && blob.type === "application/pdf") {
+    label.appendChild(document.createTextNode("\u{1F4C4} PDF attached — tap to replace"));
+  } else if (blob) {
     const im = document.createElement("img");
     im.src = URL.createObjectURL(blob);
     im.alt = "Receipt preview";
@@ -458,7 +475,11 @@ async function render(){
     row.className = "entry";
 
     let thumb;
-    if (e.photo) {
+    if (e.photo && e.photo.type === "application/pdf") {
+      thumb = document.createElement("div");
+      thumb.className = "thumb";
+      thumb.textContent = "PDF";
+    } else if (e.photo) {
       thumb = document.createElement("img");
       thumb.className = "thumb";
       thumb.src = URL.createObjectURL(e.photo);
@@ -521,42 +542,78 @@ $("xlsxBtn").addEventListener("click", async () => {
 
 $("pdfBtn").addEventListener("click", async () => {
   toast("Building PDF…");
-  const items = (await getAll()).filter(e => e.photo)
-    .sort((a, b) => a.date < b.date ? -1 : 1);
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const PW = 210, PH = 297, M = 15;
+  try {
+    const items = (await getAll()).filter(e => e.photo)
+      .sort((a, b) => a.date < b.date ? -1 : 1);
+    const { PDFDocument, StandardFonts } = PDFLib;
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const fontB = await doc.embedFont(StandardFonts.HelveticaBold);
+    const A4W = 595.28, A4H = 841.89, M = 42;
 
-  for (let i = 0; i < items.length; i++) {
-    const e = items[i];
-    if (i > 0) doc.addPage();
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-    doc.text(`Date: ${e.date}`, M, M);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-    const words = doc.splitTextToSize(`Expense: ${e.desc || e.type}`, PW - 2 * M);
-    doc.text(words, M, M + 6);
-    const yAmt = M + 6 + words.length * 5;
-    doc.text(`Amount (USD): ${e.usd == null ? "—" : "$" + fmt(e.usd)}`, M, yAmt);
+    const wrap = (text, f, size, maxW) => {
+      const words = String(text).split(/\s+/), lines = [];
+      let line = "";
+      for (const w of words) {
+        const t = line ? line + " " + w : w;
+        if (f.widthOfTextAtSize(t, size) > maxW && line) { lines.push(line); line = w; }
+        else line = t;
+      }
+      if (line) lines.push(line);
+      return lines;
+    };
 
-    const dataUrl = await blobToDataURL(e.photo);
-    const dims = await imageDims(dataUrl);
-    const yImg = yAmt + 6;
-    const maxW = PW - 2 * M, maxH = PH - M - yImg;
-    const s = Math.min(maxW / dims.w, maxH / dims.h);
-    doc.addImage(dataUrl, "JPEG", M, yImg, dims.w * s, dims.h * s);
+    // Draws the caption, returns the y of the top of the free area below it
+    const drawCaption = (page, e) => {
+      let y = A4H - M;
+      page.drawText(`Date: ${e.date}`, { x: M, y: y - 11, size: 11, font: fontB });
+      y -= 11 + 6;
+      for (const line of wrap(`Expense: ${e.desc || e.type}`, font, 10, A4W - 2 * M)) {
+        page.drawText(line, { x: M, y: y - 10, size: 10, font });
+        y -= 10 + 4;
+      }
+      page.drawText(`Amount (USD): ${e.usd == null ? "\u2014" : "$" + fmt(e.usd)}`,
+        { x: M, y: y - 10, size: 10, font });
+      return y - 10 - 10;
+    };
+
+    for (const e of items) {
+      const bytes = await e.photo.arrayBuffer();
+      if (e.photo.type === "application/pdf") {
+        const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const embedded = await doc.embedPdf(src, src.getPageIndices());
+        embedded.forEach((ep, i) => {
+          const page = doc.addPage([A4W, A4H]);
+          const top = i === 0 ? drawCaption(page, e) : A4H - M;
+          const s = Math.min((A4W - 2 * M) / ep.width, (top - M) / ep.height, 1);
+          page.drawPage(ep, {
+            x: M, y: top - ep.height * s,
+            xScale: s, yScale: s,
+          });
+        });
+      } else {
+        const img = await doc.embedJpg(bytes);
+        const page = doc.addPage([A4W, A4H]);
+        const top = drawCaption(page, e);
+        const s = Math.min((A4W - 2 * M) / img.width, (top - M) / img.height);
+        page.drawImage(img, {
+          x: M, y: top - img.height * s,
+          width: img.width * s, height: img.height * s,
+        });
+      }
+    }
+
+    const out = await doc.save();
+    const blob = new Blob([out], { type: "application/pdf" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `receipts_${stamp()}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast("PDF exported");
+  } catch (err) {
+    toast("PDF export failed: " + (err && err.message ? err.message : "unknown error"));
   }
-  doc.save(`receipts_${stamp()}.pdf`);
-  toast("PDF exported");
-});
-const blobToDataURL = blob => new Promise((res, rej) => {
-  const r = new FileReader();
-  r.onload = () => res(r.result); r.onerror = rej;
-  r.readAsDataURL(blob);
-});
-const imageDims = src => new Promise((res, rej) => {
-  const im = new Image();
-  im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
-  im.onerror = rej; im.src = src;
 });
 
 /* ---------- init ---------- */

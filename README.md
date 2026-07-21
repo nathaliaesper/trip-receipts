@@ -25,7 +25,7 @@ Open it once while online so the service worker caches everything; after that it
 
 ## Using it
 
-1. Tap **Snap receipt photo** — the camera opens directly. Photos are auto-compressed (~1500 px JPEG) before being stored.
+1. Tap **Snap receipt photo** for the camera, or **attach an image / PDF file** for e-receipts and emailed invoices. Photos are auto-compressed (~1500 px JPEG) before being stored.
 2. Fill date (defaults to today), expense type, currency, and local amount.
 3. Enter the exchange rate once per currency (1 local unit = X USD); the USD amount auto-fills and stays editable. The rate is remembered per currency.
 4. **Save expense.** Tap any entry to edit it; ✕ deletes it.
