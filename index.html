@@ -136,10 +136,43 @@
   .toast{
     position:fixed;bottom:96px;left:50%;transform:translateX(-50%);
     background:var(--ink);color:#fff;padding:10px 18px;border-radius:20px;
-    font-size:.85rem;opacity:0;transition:opacity .25s;pointer-events:none;z-index:10;
+    font-size:.85rem;opacity:0;transition:opacity .25s;pointer-events:none;z-index:30;
   }
   .toast.show{opacity:1}
   @media (prefers-reduced-motion:reduce){.toast{transition:none}}
+
+  /* crop modal */
+  .crop-modal{
+    position:fixed;inset:0;z-index:20;background:rgba(10,16,30,.92);
+    display:flex;flex-direction:column;
+    padding:calc(env(safe-area-inset-top,0px) + 12px) 12px calc(env(safe-area-inset-bottom,0px) + 12px);
+  }
+  .crop-modal[hidden]{display:none}
+  .crop-stage{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none}
+  .crop-wrap{position:relative}
+  .crop-wrap img{display:block;max-width:calc(100vw - 24px);max-height:calc(100vh - 140px);user-select:none;-webkit-user-select:none}
+  .crop-rect{
+    position:absolute;border:2px solid #fff;
+    box-shadow:0 0 0 9999px rgba(10,16,30,.55);cursor:move;touch-action:none;
+  }
+  .crop-h{
+    position:absolute;width:34px;height:34px;touch-action:none;
+  }
+  .crop-h::after{
+    content:"";position:absolute;width:16px;height:16px;background:#fff;
+    border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);
+    box-shadow:0 1px 4px rgba(0,0,0,.5);
+  }
+  .crop-h[data-h=nw]{top:-17px;left:-17px;cursor:nwse-resize}
+  .crop-h[data-h=ne]{top:-17px;right:-17px;cursor:nesw-resize}
+  .crop-h[data-h=sw]{bottom:-17px;left:-17px;cursor:nesw-resize}
+  .crop-h[data-h=se]{bottom:-17px;right:-17px;cursor:nwse-resize}
+  .crop-actions{display:flex;gap:8px;padding-top:12px}
+  .crop-actions button{
+    flex:1;padding:13px 6px;font-size:.9rem;font-weight:700;border-radius:10px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;
+  }
+  .crop-actions #cropOk{background:var(--accent);border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -227,7 +260,7 @@
     <div id="list"><div class="empty">Nothing logged yet. Snap your first receipt above.</div></div>
   </section>
 
-  <p class="ver">v8</p>
+  <p class="ver">v10</p>
 
 </div>
 
@@ -235,6 +268,25 @@
   <div class="wrap">
     <button id="xlsxBtn" disabled>&#11015; Spreadsheet (.xlsx)</button>
     <button id="pdfBtn" disabled>&#11015; Receipts PDF</button>
+  </div>
+</div>
+
+<div class="crop-modal" id="cropModal" hidden>
+  <div class="crop-stage" id="cropStage">
+    <div class="crop-wrap" id="cropWrap">
+      <img id="cropImg" alt="Receipt to crop" draggable="false">
+      <div class="crop-rect" id="cropRect">
+        <div class="crop-h" data-h="nw"></div>
+        <div class="crop-h" data-h="ne"></div>
+        <div class="crop-h" data-h="sw"></div>
+        <div class="crop-h" data-h="se"></div>
+      </div>
+    </div>
+  </div>
+  <div class="crop-actions">
+    <button type="button" id="cropCancel">Cancel</button>
+    <button type="button" id="cropFull">Use full photo</button>
+    <button type="button" id="cropOk">Crop &#10003;</button>
   </div>
 </div>
 
@@ -265,18 +317,38 @@ function tx(store, mode, fn){
     const s = t.objectStore(store);
     const out = fn(s);
     t.oncomplete = () => res(out && out.result !== undefined ? out.result : undefined);
-    t.onerror = () => rej(t.error);
+    t.onerror = () => rej(t.error || new Error("IndexedDB transaction failed"));
+    t.onabort = () => rej(t.error || new Error("IndexedDB transaction aborted"));
   });
 }
-const getAll = () => new Promise((res, rej) => {
-  const rq = db.transaction("expenses").objectStore("expenses").getAll();
-  rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
-});
-const getSetting = key => new Promise(res => {
-  const rq = db.transaction("settings").objectStore("settings").get(key);
-  rq.onsuccess = () => res(rq.result ? rq.result.value : null); rq.onerror = () => res(null);
-});
-const putSetting = (key, value) => tx("settings", "readwrite", s => s.put({ key, value }));
+/* iOS kills the IndexedDB connection when a PWA is backgrounded; every
+   operation then fails until the DB is reopened. All access goes through
+   these wrappers: try once, on failure reopen the DB and retry once. */
+async function reopenDB(){
+  try { if (db) db.close(); } catch (e) {}
+  db = await openDB();
+}
+async function safeTx(store, mode, fn){
+  try { return await tx(store, mode, fn); }
+  catch (e) { await reopenDB(); return await tx(store, mode, fn); }
+}
+function reqPromise(makeReq){
+  return new Promise((res, rej) => {
+    const rq = makeReq();
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error || new Error("IndexedDB request failed"));
+  });
+}
+async function safeReq(makeReq){
+  try { return await reqPromise(makeReq); }
+  catch (e) { await reopenDB(); return await reqPromise(makeReq); }
+}
+const getAll = () => safeReq(() => db.transaction("expenses").objectStore("expenses").getAll());
+const getEntry = id => safeReq(() => db.transaction("expenses").objectStore("expenses").get(id));
+const getSetting = key =>
+  safeReq(() => db.transaction("settings").objectStore("settings").get(key))
+    .then(r => r ? r.value : null).catch(() => null);
+const putSetting = (key, value) => safeTx("settings", "readwrite", s => s.put({ key, value }));
 
 /* ---------- state ---------- */
 let editingId = null;
@@ -299,10 +371,15 @@ function parseAmount(v){
   if (v.includes(",")) v = v.replace(/\./g, "").replace(",", ".");
   return parseFloat(v);
 }
+function describeErr(e){
+  if (!e) return "unknown error";
+  const name = e.name && e.name !== "Error" ? e.name : "";
+  const msg = e.message || "";
+  return (name && msg) ? `${name}: ${msg}` : (name || msg || String(e) || "unknown error");
+}
 // Surface silent phone-side errors as toasts (no console on mobile)
 window.addEventListener("error", ev => toast("Error: " + (ev.message || "script error")));
-window.addEventListener("unhandledrejection", ev =>
-  toast("Error: " + (ev.reason && ev.reason.message ? ev.reason.message : "async error")));
+window.addEventListener("unhandledrejection", ev => toast("Error: " + describeErr(ev.reason)));
 
 /* ---------- photo capture + compression ---------- */
 $("photoBtn").addEventListener("click", () => fPhoto.click());
@@ -318,7 +395,10 @@ async function handleAttachment(input){
       pendingPhoto = file;
       toast("PDF attached");
     } else {
-      pendingPhoto = await compressImage(file, 1500, 0.82);
+      const compressed = await compressImage(file, 1500, 0.82);
+      const chosen = await openCropper(compressed);
+      if (!chosen) { input.value = ""; return; }
+      pendingPhoto = chosen;
       toast("Photo attached");
     }
     photoCleared = false;
@@ -359,6 +439,89 @@ function showPhotoPreview(blob){
     label.innerHTML = "&#128247; Snap receipt photo";
   }
 }
+
+/* ---------- cropper ---------- */
+const cropModal=$("cropModal"), cropImg=$("cropImg"), cropRect=$("cropRect");
+let crop = null; // {url, natW, natH, dispW, dispH, L, T, R, B, resolve, blob}
+
+function cropDraw(){
+  cropRect.style.left = crop.L + "px";
+  cropRect.style.top = crop.T + "px";
+  cropRect.style.width = (crop.R - crop.L) + "px";
+  cropRect.style.height = (crop.B - crop.T) + "px";
+}
+function openCropper(blob){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
+    crop = { url, blob, resolve, natW:0, natH:0, dispW:0, dispH:0, L:0, T:0, R:0, B:0 };
+    cropImg.onload = () => {
+      crop.natW = cropImg.naturalWidth; crop.natH = cropImg.naturalHeight;
+      const r = cropImg.getBoundingClientRect();
+      crop.dispW = r.width; crop.dispH = r.height;
+      crop.L = r.width * 0.05; crop.T = r.height * 0.05;
+      crop.R = r.width * 0.95; crop.B = r.height * 0.95;
+      cropDraw();
+    };
+    cropModal.hidden = false;
+    cropImg.src = url;
+  });
+}
+function closeCropper(result){
+  cropModal.hidden = true;
+  cropImg.src = "";
+  URL.revokeObjectURL(crop.url);
+  const resolve = crop.resolve;
+  crop = null;
+  resolve(result);
+}
+$("cropCancel").addEventListener("click", () => closeCropper(null));
+$("cropFull").addEventListener("click", () => closeCropper(crop.blob));
+$("cropOk").addEventListener("click", () => {
+  const sx = crop.natW / crop.dispW, sy = crop.natH / crop.dispH;
+  const x = crop.L * sx, y = crop.T * sy,
+        w = (crop.R - crop.L) * sx, h = (crop.B - crop.T) * sy;
+  const c = document.createElement("canvas");
+  c.width = Math.round(w); c.height = Math.round(h);
+  const img = new Image();
+  img.onload = () => {
+    c.getContext("2d").drawImage(img, x, y, w, h, 0, 0, c.width, c.height);
+    c.toBlob(b => closeCropper(b || crop.blob), "image/jpeg", 0.85);
+  };
+  img.src = crop.url;
+});
+
+// drag to move, corner handles to resize
+const MIN = 40;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+let drag = null; // {mode, startX, startY, L, T, R, B}
+function cropPointerDown(e){
+  if (!crop) return;
+  const h = e.target.dataset && e.target.dataset.h;
+  drag = { mode: h || "move", startX: e.clientX, startY: e.clientY,
+           L: crop.L, T: crop.T, R: crop.R, B: crop.B };
+  e.target.setPointerCapture(e.pointerId);
+  e.preventDefault();
+}
+function cropPointerMove(e){
+  if (!drag || !crop) return;
+  const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+  if (drag.mode === "move") {
+    const w = drag.R - drag.L, hgt = drag.B - drag.T;
+    crop.L = clamp(drag.L + dx, 0, crop.dispW - w);
+    crop.T = clamp(drag.T + dy, 0, crop.dispH - hgt);
+    crop.R = crop.L + w; crop.B = crop.T + hgt;
+  } else {
+    if (drag.mode.includes("w")) crop.L = clamp(drag.L + dx, 0, drag.R - MIN);
+    if (drag.mode.includes("e")) crop.R = clamp(drag.R + dx, drag.L + MIN, crop.dispW);
+    if (drag.mode.includes("n")) crop.T = clamp(drag.T + dy, 0, drag.B - MIN);
+    if (drag.mode.includes("s")) crop.B = clamp(drag.B + dy, drag.T + MIN, crop.dispH);
+  }
+  cropDraw();
+}
+cropRect.addEventListener("pointerdown", cropPointerDown);
+cropRect.addEventListener("pointermove", cropPointerMove);
+cropRect.addEventListener("pointerup", () => { drag = null; });
+cropRect.addEventListener("pointercancel", () => { drag = null; });
 
 /* ---------- rate helpers ---------- */
 async function loadRateFor(cur){
@@ -422,22 +585,23 @@ $("saveBtn").addEventListener("click", async () => {
     usd: isNaN(usd) ? null : Math.round(usd * 100) / 100,
   };
 
-  if (editingId != null) {
-    const old = await new Promise(r => {
-      const rq = db.transaction("expenses").objectStore("expenses").get(editingId);
-      rq.onsuccess = () => r(rq.result);
-    });
-    entry.id = editingId;
-    entry.photo = photoCleared ? null : (pendingPhoto || (old && old.photo) || null);
-    await tx("expenses", "readwrite", s => s.put(entry));
-    toast("Expense updated");
-  } else {
-    entry.photo = pendingPhoto || null;
-    await tx("expenses", "readwrite", s => s.add(entry));
-    toast("Expense saved");
+  try {
+    if (editingId != null) {
+      const old = await getEntry(editingId);
+      entry.id = editingId;
+      entry.photo = photoCleared ? null : (pendingPhoto || (old && old.photo) || null);
+      await safeTx("expenses", "readwrite", s => s.put(entry));
+      toast("Expense updated");
+    } else {
+      entry.photo = pendingPhoto || null;
+      await safeTx("expenses", "readwrite", s => s.add(entry));
+      toast("Expense saved");
+    }
+    resetForm();
+    render();
+  } catch (err) {
+    toast("Could not save: " + describeErr(err));
   }
-  resetForm();
-  render();
 });
 
 $("cancelBtn").addEventListener("click", resetForm);
@@ -467,7 +631,7 @@ async function startEdit(e){
 
 async function remove(id){
   if (!confirm("Delete this expense?")) return;
-  await tx("expenses", "readwrite", s => s.delete(id));
+  await safeTx("expenses", "readwrite", s => s.delete(id));
   if (editingId === id) resetForm();
   render();
 }
