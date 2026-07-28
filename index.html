@@ -82,6 +82,12 @@
     color:var(--accent);font-size:.85rem;cursor:pointer;text-align:center;
   }
 
+  .clear-all-btn{
+  background:none;border:none;color:var(--danger);
+  font-size:.75rem;font-weight:600;cursor:pointer;padding:4px;
+  }
+  .clear-all-btn:disabled{opacity:.35;cursor:default}
+
   .actions{display:flex;gap:10px;margin-top:16px}
   button.primary{
     flex:1;padding:14px;font-size:1rem;font-weight:700;border:none;border-radius:10px;
@@ -198,10 +204,10 @@
         <label for="fType">Expense type</label>
         <select id="fType">
           <option>Meals</option>
-          <option>Transport</option>
+          <option>Transportation</option>
           <option>Lodging</option>
-          <option>Flights</option>
-          <option>Conference / fees</option>
+          <option>Conference / Fees</option>
+          <option>Copy / Printer</option>
           <option>Supplies</option>
           <option>Other</option>
         </select>
@@ -221,7 +227,7 @@
       </div>
       <div>
         <label for="fLocal">Amount (local)</label>
-        <input type="text" class="amt" id="fLocal" inputmode="decimal" placeholder="0,00">
+        <input type="text" class="amt" id="fLocal" inputmode="decimal" placeholder="0.00">
       </div>
     </div>
 
@@ -229,13 +235,13 @@
       <div>
         <label for="fRate">Rate (1 local = ? USD)</label>
         <div class="rate-row">
-          <input type="text" class="amt" id="fRate" inputmode="decimal" placeholder="e.g. 1,08">
+          <input type="text" class="amt" id="fRate" inputmode="decimal" placeholder="e.g. 1.08">
           <button type="button" id="rateBtn" class="rate-btn" aria-label="Fetch today's rate" title="Fetch today's rate">&#8635;</button>
         </div>
       </div>
       <div>
         <label for="fUsd">Amount (USD)</label>
-        <input type="text" class="amt" id="fUsd" inputmode="decimal" placeholder="0,00">
+        <input type="text" class="amt" id="fUsd" inputmode="decimal" placeholder="0.00">
       </div>
     </div>
 
@@ -254,8 +260,11 @@
 
   <section class="tape" aria-label="Expense list">
     <div class="tape-head">
-      <h2>Logged</h2>
-      <span id="countLabel">0 entries</span>
+    <h2>Logged</h2>
+    <div style="display:flex;align-items:center;gap:10px">
+    <span id="countLabel">0 entries</span>
+    <button type="button" id="clearAllBtn" class="clear-all-btn">Clear all</button>
+    </div>
     </div>
     <div id="list"><div class="empty">Nothing logged yet. Snap your first receipt above.</div></div>
   </section>
@@ -559,6 +568,7 @@ fCur.addEventListener("change", async () => {
   await loadRateFor(fCur.value);   // saved rate first, as fallback
   fetchRate(fCur.value, true);     // then try to refresh silently
 });
+fDate.addEventListener("change", () => fetchRate(fCur.value, false));
 function recompute(){
   const local = parseAmount(fLocal.value), rate = parseAmount(fRate.value);
   if (!isNaN(local) && !isNaN(rate)) fUsd.value = fmt(local * rate);
@@ -636,6 +646,16 @@ async function remove(id){
   render();
 }
 
+async function clearAll(){
+const items = await getAll();
+if (!items.length) return;
+if (!confirm(`Delete all ${items.length} expense${items.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+await safeTx("expenses", "readwrite", s => s.clear());
+if (editingId != null) resetForm();
+render();
+}
+$("clearAllBtn").addEventListener("click", clearAll);
+
 /* ---------- render ---------- */
 async function render(){
   const items = (await getAll()).sort((a, b) =>
@@ -693,6 +713,7 @@ async function render(){
   $("countLabel").textContent = items.length + (items.length === 1 ? " entry" : " entries")
     + (pending ? ` · ${pending} pending USD` : "");
   $("xlsxBtn").disabled = !items.length;
+  $("clearAllBtn").disabled = !items.length;
   $("pdfBtn").disabled = !items.some(e => e.photo);
 }
 

@@ -9,13 +9,6 @@ Snap receipt photos, log expenses (date, type, local amount, USD amount), and ex
 - `sw.js` — service worker; caches the app and the two CDN libraries so it works offline
 - `icon-192.png`, `icon-512.png` — app icons
 
-## Deploy on GitHub Pages (once, ~3 minutes)
-
-1. Create a new GitHub repo, e.g. `trip-receipts`.
-2. Upload all five files to the repo root (web UI: *Add file → Upload files*).
-3. Repo *Settings → Pages → Source*: select branch `main`, folder `/ (root)`. Save.
-4. Wait a minute; your app is live at `https://<your-username>.github.io/trip-receipts/`.
-
 ## Install on your phone (before the trip, while online)
 
 - **iPhone (Safari):** open the URL → Share → *Add to Home Screen*.
