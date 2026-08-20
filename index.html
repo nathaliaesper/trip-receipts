@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root{
@@ -720,23 +720,100 @@ async function render(){
 /* ---------- exports ---------- */
 const stamp = () => new Date().toISOString().slice(0, 10);
 
-$("xlsxBtn").addEventListener("click", async () => {
-  const items = (await getAll()).sort((a, b) => a.date < b.date ? -1 : 1);
-  const rows = [["Date", "Expense Type", "Expense", "Amount (Local Currency)", "Currency", "Amount (USD)"]];
-  let total = 0;
-  for (const e of items) {
-    rows.push([e.date, e.type, e.desc || "", e.local, e.currency, e.usd == null ? "" : e.usd]);
-    if (e.usd != null) total += e.usd;
-  }
-  rows.push([]);
-  rows.push(["", "", "TOTAL", "", "", Math.round(total * 100) / 100]);
+// CMI's official expense reimbursement template — must be deployed alongside index.html
+const CMI_TEMPLATE_URL = "Expense_Reimbursement_Form_Sage_Intacct_01_15_25_-_AB.xlsx";
+const CMI_SHEET_NAME = "Exp Reimb Form";
+const CMI_FIRST_ROW = 17;      // first expense line on the template
+const CMI_BASE_LAST_ROW = 24;  // last built-in expense line before the totals block
 
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 20 }, { wch: 9 }, { wch: 13 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Expenses");
-  XLSX.writeFile(wb, `expenses_${stamp()}.xlsx`);
-  toast("Spreadsheet exported");
+const excelDateFromISO = iso => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+};
+
+$("xlsxBtn").addEventListener("click", async () => {
+  toast("Building spreadsheet…");
+  try {
+    const items = (await getAll())
+      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    if (!items.length) return;
+
+    const resp = await fetch(CMI_TEMPLATE_URL);
+    if (!resp.ok) throw new Error("Could not load the CMI template file");
+    const buf = await resp.arrayBuffer();
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const ws = wb.getWorksheet(CMI_SHEET_NAME);
+    if (!ws) throw new Error(`Sheet "${CMI_SHEET_NAME}" not found in template`);
+
+    // The template only ships 8 built-in expense lines (rows 17-24). If there
+    // are more items than that, insert extra rows above the totals block,
+    // cloning the last template row's formatting and budget-coding formulas.
+    const baseCapacity = CMI_BASE_LAST_ROW - CMI_FIRST_ROW + 1;
+    const extra = Math.max(0, items.length - baseCapacity);
+
+    if (extra > 0) {
+      const templateRowNum = CMI_BASE_LAST_ROW;
+      const templateRow = ws.getRow(templateRowNum);
+
+      // merges below the insertion point need to move down with their rows
+      const mergesToShift = ws.model.merges.filter(range => {
+        const startRow = parseInt(range.split(":")[0].replace(/[A-Z]/g, ""), 10);
+        return startRow > CMI_BASE_LAST_ROW;
+      });
+      mergesToShift.forEach(range => ws.unMergeCells(range));
+
+      ws.spliceRows(CMI_BASE_LAST_ROW + 1, 0, ...Array.from({ length: extra }, () => []));
+
+      for (let i = 0; i < extra; i++) {
+        const newRowNum = CMI_BASE_LAST_ROW + 1 + i;
+        const newRow = ws.getRow(newRowNum);
+        newRow.height = templateRow.height;
+        templateRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          const newCell = newRow.getCell(colNumber);
+          newCell.style = JSON.parse(JSON.stringify(cell.style));
+          if (cell.formula) {
+            const re = new RegExp(String(templateRowNum), "g");
+            newCell.value = { formula: cell.formula.replace(re, String(newRowNum)) };
+          }
+        });
+        newRow.commit();
+      }
+
+      mergesToShift.forEach(range => {
+        const [startRef, endRef] = range.split(":");
+        const shift = ref => ref.replace(/\d+/, n => String(parseInt(n, 10) + extra));
+        ws.mergeCells(`${shift(startRef)}:${shift(endRef)}`);
+      });
+
+      // the two summary formulas reference fixed rows — point them at the new ones
+      const totalRow = CMI_BASE_LAST_ROW + 1 + extra;
+      const advanceRow = CMI_BASE_LAST_ROW + 2 + extra;
+      const netRow = CMI_BASE_LAST_ROW + 3 + extra;
+      ws.getCell(`E${totalRow}`).value = { formula: `SUM(E${CMI_FIRST_ROW}:E${CMI_BASE_LAST_ROW + extra})` };
+      ws.getCell(`E${netRow}`).value = { formula: `E${totalRow}-E${advanceRow}` };
+    }
+
+    items.forEach((e, i) => {
+      const row = CMI_FIRST_ROW + i;
+      ws.getCell(`B${row}`).value = excelDateFromISO(e.date);
+      ws.getCell(`C${row}`).value = e.desc ? `${e.type} - ${e.desc}` : e.type;
+      ws.getCell(`D${row}`).value = `${e.local.toFixed(2)} ${e.currency}`;
+      ws.getCell(`E${row}`).value = e.usd == null ? null : Math.round(e.usd * 100) / 100;
+    });
+
+    const out = await wb.xlsx.writeBuffer();
+    const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `Expense_Reimbursement_${stamp()}.xlsx`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast("Spreadsheet exported");
+  } catch (err) {
+    toast("Spreadsheet export failed: " + (err && err.message ? err.message : "unknown error"));
+  }
 });
 
 $("pdfBtn").addEventListener("click", async () => {
