@@ -39,8 +39,38 @@
   }
   header .wrap{display:flex;align-items:baseline;justify-content:space-between}
   header h1{font-size:1.15rem;font-weight:700;letter-spacing:.02em}
+  header .header-total{display:flex;align-items:center;gap:10px}
   header .total{font-family:var(--mono);font-size:1.05rem}
   header .total small{font-size:.7rem;opacity:.8;font-family:var(--sans);margin-right:6px}
+  .daily-btn{
+    width:30px;height:30px;flex-shrink:0;border-radius:8px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);
+    color:#fff;font-size:.9rem;display:flex;align-items:center;justify-content:center;
+  }
+  .daily-btn:active{background:rgba(255,255,255,.25)}
+
+  /* daily totals sheet */
+  .daily-modal{
+    position:fixed;inset:0;z-index:20;background:rgba(10,16,30,.55);
+    display:flex;align-items:flex-end;justify-content:center;
+  }
+  .daily-modal[hidden]{display:none}
+  .daily-sheet{
+    width:100%;max-width:520px;background:var(--card);border-radius:16px 16px 0 0;
+    max-height:78vh;display:flex;flex-direction:column;
+    padding:16px 16px calc(env(safe-area-inset-bottom,0px) + 16px);
+  }
+  .daily-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .daily-head h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .daily-close{background:none;border:none;font-size:1.05rem;color:var(--muted);cursor:pointer;padding:4px}
+  .daily-list{overflow-y:auto}
+  .daily-row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px dashed var(--line)}
+  .daily-row:last-child{border-bottom:none}
+  .daily-row .d-date{font-family:var(--mono);font-size:.85rem;font-weight:600}
+  .daily-row .d-count{font-size:.72rem;color:var(--muted);margin-left:6px;font-family:var(--sans)}
+  .daily-row .d-side{text-align:right}
+  .daily-row .d-amt{font-family:var(--mono);font-weight:700;font-size:.95rem}
+  .daily-row .d-pending{font-size:.7rem;color:var(--muted)}
 
   .card{
     background:var(--card);border:1px solid var(--line);border-radius:12px;
@@ -186,9 +216,22 @@
 <header>
   <div class="wrap">
     <h1>CMI - Trip Receipts</h1>
-    <div class="total"><small>TOTAL</small>$<span id="totalUsd">0.00</span></div>
+    <div class="header-total">
+      <button type="button" id="dailyBtn" class="daily-btn" aria-label="Totals by day" title="Totals by day">&#128197;</button>
+      <div class="total"><small>TOTAL</small>$<span id="totalUsd">0.00</span></div>
+    </div>
   </div>
 </header>
+
+<div class="daily-modal" id="dailyModal" hidden>
+  <div class="daily-sheet">
+    <div class="daily-head">
+      <h2>Totals by day</h2>
+      <button type="button" id="dailyClose" class="daily-close" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="daily-list" id="dailyList"></div>
+  </div>
+</div>
 
 <div class="wrap">
 
@@ -269,7 +312,7 @@
     <div id="list"><div class="empty">Nothing logged yet. Snap your first receipt above.</div></div>
   </section>
 
-  <p class="ver">v11</p>
+  <p class="ver">v13</p>
 
 </div>
 
@@ -716,6 +759,40 @@ async function render(){
   $("clearAllBtn").disabled = !items.length;
   $("pdfBtn").disabled = !items.some(e => e.photo);
 }
+
+/* ---------- totals by day ---------- */
+$("dailyBtn").addEventListener("click", async () => {
+  const items = await getAll();
+  const groups = {};
+  for (const e of items) {
+    const g = groups[e.date] || (groups[e.date] = { total: 0, count: 0, pending: 0 });
+    g.count++;
+    if (e.usd == null) g.pending++; else g.total += e.usd;
+  }
+  const dates = Object.keys(groups).sort((a, b) => a < b ? 1 : -1); // most recent first
+
+  const list = $("dailyList");
+  list.innerHTML = "";
+  if (!dates.length) {
+    list.innerHTML = `<div class="empty">No expenses yet</div>`;
+  } else {
+    for (const d of dates) {
+      const g = groups[d];
+      const row = document.createElement("div");
+      row.className = "daily-row";
+      row.innerHTML = `
+        <div><span class="d-date">${d}</span><span class="d-count">${g.count} ${g.count === 1 ? "entry" : "entries"}</span></div>
+        <div class="d-side">
+          <div class="d-amt">$${fmt(g.total)}</div>
+          ${g.pending ? `<div class="d-pending">${g.pending} pending</div>` : ""}
+        </div>`;
+      list.appendChild(row);
+    }
+  }
+  $("dailyModal").hidden = false;
+});
+$("dailyClose").addEventListener("click", () => { $("dailyModal").hidden = true; });
+$("dailyModal").addEventListener("click", ev => { if (ev.target.id === "dailyModal") $("dailyModal").hidden = true; });
 
 /* ---------- exports ---------- */
 const stamp = () => new Date().toISOString().slice(0, 10);
