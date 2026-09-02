@@ -1,4 +1,4 @@
-const CACHE = "trip-receipts-v12";
+const CACHE = "trip-receipts-v13";
 const ASSETS = [
   ".",
   "index.html",
@@ -7,6 +7,7 @@ const ASSETS = [
   "icon-512.png",
   "Expense_Reimbursement_Form_Sage_Intacct_01_15_25_-_AB.xlsx",
   "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
 ];
 
