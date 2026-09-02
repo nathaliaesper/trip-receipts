@@ -1,4 +1,4 @@
-const CACHE = "trip-receipts-v14";
+const CACHE = "trip-receipts-v15";
 const ASSETS = [
   ".",
   "index.html",
