@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root{
@@ -731,6 +732,34 @@ const excelDateFromISO = iso => {
   return new Date(Date.UTC(y, m - 1, d));
 };
 
+// ExcelJS doesn't preserve x14 (extended) data validations, which is how
+// this template's budget-coding dropdowns (columns F/H/J/L/N/P) are defined.
+// Re-inject that XML block from the original template after ExcelJS writes
+// the file, extending each dropdown's range if extra rows were inserted.
+const CMI_SHEET_XML_PATH = "xl/worksheets/sheet1.xml"; // "Exp Reimb Form" is always the first sheet in this template
+async function restoreDropdowns(templateBuf, outputBuf, newLastRow) {
+  const origZip = await JSZip.loadAsync(templateBuf);
+  const origFile = origZip.file(CMI_SHEET_XML_PATH);
+  if (!origFile) return outputBuf;
+  const origSheetXml = await origFile.async("string");
+  const extMatch = origSheetXml.match(/<extLst>[\s\S]*?<\/extLst>/);
+  if (!extMatch) return outputBuf;
+  let extLst = extMatch[0];
+
+  if (newLastRow > CMI_BASE_LAST_ROW) {
+    extLst = extLst.replace(
+      /<xm:sqref>([A-Z]+)17:([A-Z]+)24<\/xm:sqref>/g,
+      (m, c1, c2) => `<xm:sqref>${c1}17:${c2}${newLastRow}</xm:sqref>`
+    );
+  }
+
+  const outZip = await JSZip.loadAsync(outputBuf);
+  let sheetXml = await outZip.file(CMI_SHEET_XML_PATH).async("string");
+  sheetXml = sheetXml.replace("</worksheet>", extLst + "</worksheet>");
+  outZip.file(CMI_SHEET_XML_PATH, sheetXml);
+  return outZip.generateAsync({ type: "arraybuffer" });
+}
+
 $("xlsxBtn").addEventListener("click", async () => {
   toast("Building spreadsheet…");
   try {
@@ -803,7 +832,8 @@ $("xlsxBtn").addEventListener("click", async () => {
       ws.getCell(`E${row}`).value = e.usd == null ? null : Math.round(e.usd * 100) / 100;
     });
 
-    const out = await wb.xlsx.writeBuffer();
+    let out = await wb.xlsx.writeBuffer();
+    out = await restoreDropdowns(buf, out, CMI_BASE_LAST_ROW + extra);
     const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
