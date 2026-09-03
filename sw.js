@@ -1,11 +1,11 @@
-const CACHE = "trip-receipts-v15";
+const CACHE = "trip-receipts-v16";
 const ASSETS = [
   ".",
   "index.html",
   "manifest.webmanifest",
   "icon-192.png",
   "icon-512.png",
-  "Expense_Reimbursement_Form_Sage_Intacct_01_15_25_-_AB.xlsx",
+  "expense_reimbursement_form.xlsx",
   "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"

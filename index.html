@@ -848,7 +848,7 @@ $("dailyModal").addEventListener("click", ev => { if (ev.target.id === "dailyMod
 const stamp = () => new Date().toISOString().slice(0, 10);
 
 // CMI's official expense reimbursement template — must be deployed alongside index.html
-const CMI_TEMPLATE_URL = "Expense_Reimbursement_Form_Sage_Intacct_01_15_25_-_AB.xlsx";
+const CMI_TEMPLATE_URL = "expense_reimbursement_form.xlsx";
 const CMI_SHEET_NAME = "Exp Reimb Form";
 const CMI_FIRST_ROW = 17;      // first expense line on the template
 const CMI_BASE_LAST_ROW = 24;  // last built-in expense line before the totals block
