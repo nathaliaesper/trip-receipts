@@ -851,7 +851,7 @@ const stamp = () => new Date().toISOString().slice(0, 10);
 const CMI_TEMPLATE_URL = "expense_reimbursement_form.xlsx";
 const CMI_SHEET_NAME = "Exp Reimb Form";
 const CMI_FIRST_ROW = 17;      // first expense line on the template
-const CMI_BASE_LAST_ROW = 24;  // last built-in expense line before the totals block
+const CMI_BASE_LAST_ROW = 18;  // last built-in expense line before the totals block
 
 const excelDateFromISO = iso => {
   const [y, m, d] = iso.split("-").map(Number);
@@ -859,7 +859,7 @@ const excelDateFromISO = iso => {
 };
 
 // ExcelJS doesn't preserve x14 (extended) data validations, which is how
-// this template's budget-coding dropdowns (columns F/H/J/L/N/P) are defined.
+// this template's budget-coding dropdowns (columns E/G/I/K/M/O) are defined.
 // Re-inject that XML block from the original template after ExcelJS writes
 // the file, extending each dropdown's range if extra rows were inserted.
 const CMI_SHEET_XML_PATH = "xl/worksheets/sheet1.xml"; // "Exp Reimb Form" is always the first sheet in this template
@@ -873,9 +873,12 @@ async function restoreDropdowns(templateBuf, outputBuf, newLastRow) {
   let extLst = extMatch[0];
 
   if (newLastRow > CMI_BASE_LAST_ROW) {
+    const sqrefRe = new RegExp(
+      `<xm:sqref>([A-Z]+)${CMI_FIRST_ROW}:([A-Z]+)${CMI_BASE_LAST_ROW}</xm:sqref>`, "g"
+    );
     extLst = extLst.replace(
-      /<xm:sqref>([A-Z]+)17:([A-Z]+)24<\/xm:sqref>/g,
-      (m, c1, c2) => `<xm:sqref>${c1}17:${c2}${newLastRow}</xm:sqref>`
+      sqrefRe,
+      (m, c1, c2) => `<xm:sqref>${c1}${CMI_FIRST_ROW}:${c2}${newLastRow}</xm:sqref>`
     );
   }
 
@@ -920,7 +923,7 @@ $("xlsxBtn").addEventListener("click", async () => {
     const ws = wb.getWorksheet(CMI_SHEET_NAME);
     if (!ws) throw new Error(`Sheet "${CMI_SHEET_NAME}" not found in template`);
 
-    // The template only ships 8 built-in expense lines (rows 17-24). If there
+    // The template only ships 2 built-in expense lines (rows 17-18). If there
     // are more items than that, insert extra rows above the totals block,
     // cloning the last template row's formatting and budget-coding formulas.
     const baseCapacity = CMI_BASE_LAST_ROW - CMI_FIRST_ROW + 1;
@@ -964,16 +967,16 @@ $("xlsxBtn").addEventListener("click", async () => {
       const totalRow = CMI_BASE_LAST_ROW + 1 + extra;
       const advanceRow = CMI_BASE_LAST_ROW + 2 + extra;
       const netRow = CMI_BASE_LAST_ROW + 3 + extra;
-      ws.getCell(`E${totalRow}`).value = { formula: `SUM(E${CMI_FIRST_ROW}:E${CMI_BASE_LAST_ROW + extra})` };
-      ws.getCell(`E${netRow}`).value = { formula: `E${totalRow}-E${advanceRow}` };
+      ws.getCell(`D${totalRow}`).value = { formula: `SUM(D${CMI_FIRST_ROW}:D${CMI_BASE_LAST_ROW + extra})` };
+      ws.getCell(`D${netRow}`).value = { formula: `D${totalRow}-D${advanceRow}` };
     }
 
     items.forEach((e, i) => {
       const row = CMI_FIRST_ROW + i;
-      ws.getCell(`B${row}`).value = excelDateFromISO(e.date);
-      ws.getCell(`C${row}`).value = e.desc ? `${e.type} - ${e.desc}` : e.type;
-      ws.getCell(`D${row}`).value = `${e.local.toFixed(2)} ${e.currency}`;
-      ws.getCell(`E${row}`).value = e.usd == null ? null : Math.round(e.usd * 100) / 100;
+      ws.getCell(`A${row}`).value = excelDateFromISO(e.date);
+      ws.getCell(`B${row}`).value = e.desc ? `${e.type} - ${e.desc}` : e.type;
+      ws.getCell(`C${row}`).value = e.local;
+      ws.getCell(`D${row}`).value = e.usd == null ? null : Math.round(e.usd * 100) / 100;
     });
 
     let out = await wb.xlsx.writeBuffer();
